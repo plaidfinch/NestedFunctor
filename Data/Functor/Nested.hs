@@ -1,3 +1,17 @@
+{- |
+Module      :  Control.Comonad.Sheet
+Description :  Composition of functors with a type index tracking nesting.
+Copyright   :  Copyright (c) 2014 Kenneth Foner
+
+Maintainer  :  kenneth.foner@gmail.com
+Stability   :  experimental
+Portability :  non-portable
+
+This module implements something akin to 'Data.Compose', but with a type index that tracks the order in which things
+are nested. This makes it possible to write code using polymorphic recursion over the levels of the structure contained
+in a 'Nested' value.
+-}
+
 {-# LANGUAGE ConstraintKinds       #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE GADTs                 #-}
@@ -17,21 +31,48 @@ import Data.Foldable
 import Data.Traversable
 import Data.Distributive
 
-data Flat x
-data Nest o i
+-- | @Flat x@ is the type index used for the base case of a 'Nested' value. Thus, a @(Nested (Flat []) Int@ is
+--   isomorphic to a @[Int]@.
+data Flat (x :: * -> *)
+-- | @Nest o i@ is the type index used for the recursive case of a 'Nested' value: the @o@ parameter is the type 
+--   constructors corresponding to the /outside/ levels, and the @i@ parameter is the single type constructor
+--   corresponding to the /inner-most/ level. Thus, a @(Nested (Nest (Flat Maybe) []) Int)@ is isomorphic to a
+--   @(Maybe [Int])@.
+data Nest (o :: *) (i :: * -> *)
 
+-- | A @Nested fs a@ is the composition of all the layers mentioned in @fs@, applied to an @a@. Specifically, the @fs@
+--   parameter is a sort of snoc-list holding type constructors of kind @(* -> *)@. The outermost layer appears as the
+--   parameter to @Flat@; the innermost layer appears as the rightmost argument to the outermost @Nest@. For instance:
+--
+-- >                  [Just ['a']]   :: [Maybe [Char]]
+-- >             Flat [Just ['a']]   :: Nested (Flat []) (Maybe [Char])
+-- >       Nest (Flat [Just ['a']])  :: Nested (Nest (Flat []) Maybe) [Char]
+-- > Nest (Nest (Flat [Just ['a']])) :: Nested (Nest (Nest (Flat []) Maybe) []) Char
 data Nested fs a where
    Flat :: f a -> Nested (Flat f) a
-   Nest :: forall (f :: * -> *) fs a. Nested fs (f a) -> Nested (Nest fs f) a
-   -- We need the explicit forall with kind signature to prevent ambiguity stemming from PolyKinds
+   Nest :: Nested fs (f a) -> Nested (Nest fs f) a
 
+-- | The @UnNest@ type family describes what happens when you peel off one @Nested@ constructor from a @Nested@ value.
 type family UnNest x where
    UnNest (Nested (Flat f) a)    = f a
    UnNest (Nested (Nest fs f) a) = Nested fs (f a)
 
+-- | Removes one @Nested@ constructor (either @Nest@ or @Flat@) from a @Nested@ value.
+--
+-- > unNest . Nest == id
+-- > unNest . Flat == id
+--
+-- > unNest (Nest (Flat [['x']])) == Flat [['x']]
+-- > unNest (Flat (Just 'x')) == Just 'x'
 unNest :: Nested fs a -> UnNest (Nested fs a)
 unNest (Flat x) = x
 unNest (Nest x) = x
+
+instance (Show (f a)) => Show (Nested (Flat f) a) where
+   show (Flat x) = "(Flat " ++ show x ++ ")"
+
+instance (Show (Nested fs (f a))) => Show (Nested (Nest fs f) a) where
+   show (Nest x) = "(Nest " ++ show x ++ ")"
 
 instance (Functor f) => Functor (Nested (Flat f)) where
    fmap f = Flat . fmap f . unNest
@@ -92,14 +133,11 @@ instance (Distributive f) => Distributive (Nested (Flat f)) where
 instance (Distributive f, Distributive (Nested fs)) => Distributive (Nested (Nest fs f)) where
    distribute = Nest . fmap distribute . distribute . fmap unNest
 
-type family AddNest x where
-   AddNest (Nested fs (f x)) = Nested (Nest fs f) x
-
-type family AsNestedAs x y where
-   (f x) `AsNestedAs` (Nested (Flat g) b) = Nested (Flat f) x
-   x     `AsNestedAs` y                   = AddNest (x `AsNestedAs` (UnNest y))
-
 class NestedAs x y where
+   -- | Given some nested structure which is /not/ wrapped in @Nested@ constructors, and one which is, wrap the first
+   --   in the same number of @Nested@ constructors so that they are equivalently nested.
+   --
+   -- > [['a']] `asNestedAs` Nest (Flat (Just (Just 0))) == Nest (Flat [['a']])
    asNestedAs :: x -> y -> x `AsNestedAs` y
 
 instance ( AsNestedAs (f a) (Nested (Flat g) b) ~ Nested (Flat f) a )
@@ -111,3 +149,13 @@ instance ( AsNestedAs (f a) (UnNest (Nested (Nest g h) b)) ~ Nested fs (f' a')
          , NestedAs (f a) (UnNest (Nested (Nest g h) b)))
          => NestedAs (f a) (Nested (Nest g h) b) where
    x `asNestedAs` y = Nest (x `asNestedAs` (unNest y))
+
+-- | This type family calculates the result type of applying the @Nested@ constructors to its first argument a number
+--   of times equal to the depth of nesting in its second argument.
+type family AsNestedAs x y where
+   (f x) `AsNestedAs` (Nested (Flat g) b) = Nested (Flat f) x
+   x     `AsNestedAs` y                   = AddNest (x `AsNestedAs` (UnNest y))
+
+-- | This type family calculates the type of a @Nested@ value if one more @Nest@ constructor is applied to it.
+type family AddNest x where
+   AddNest (Nested fs (f x)) = Nested (Nest fs f) x
