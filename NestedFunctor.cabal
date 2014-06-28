@@ -2,13 +2,14 @@
 -- documentation, see http://haskell.org/cabal/users-guide/
 
 name:                NestedFunctor
-version:             0.2.0.1
+version:             0.2.0.2
 synopsis:            Nested composition of functors with a type index tracking nesting.
 description:         This package implements something akin to 'Data.Compose', but with a type index that tracks the order in which things are nested. This makes it possible to write code using polymorphic recursion over the levels of the structure contained in a 'Nested' value.
 license:             BSD3
 license-file:        LICENSE
 author:              Kenneth Foner
 maintainer:          kenneth.foner@gmail.com
+homepage:            https://github.com/kwf/NestedFunctor
 copyright:           Copyright (c) 2014 Kenneth W. Foner
 category:            Data
 build-type:          Simple
