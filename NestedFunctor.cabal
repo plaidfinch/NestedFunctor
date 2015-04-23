@@ -20,6 +20,6 @@ library
   exposed-modules:     Data.Functor.Nested
   -- other-modules:       
   other-extensions:    ConstraintKinds, FlexibleInstances, GADTs, MultiParamTypeClasses, PolyKinds, RankNTypes, StandaloneDeriving, TypeFamilies, TypeOperators, UndecidableInstances
-  build-depends:       base >=4.7 && <4.8, comonad >=4.2 && <4.3, distributive >=0.4 && <0.5
+  build-depends:       base >=4.7 && <4.8, comonad >=4.2 && <4.3, distributive >=0.4 && <0.5, PeanoWitnesses >= 0.1
   -- hs-source-dirs:      
   default-language:    Haskell2010

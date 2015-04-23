@@ -12,16 +12,19 @@ are nested. This makes it possible to write code using polymorphic recursion ove
 in a 'Nested' value.
 -}
 
-{-# LANGUAGE ConstraintKinds       #-}
-{-# LANGUAGE FlexibleInstances     #-}
-{-# LANGUAGE GADTs                 #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE PolyKinds             #-}
-{-# LANGUAGE RankNTypes            #-}
-{-# LANGUAGE StandaloneDeriving    #-}
-{-# LANGUAGE TypeFamilies          #-}
-{-# LANGUAGE TypeOperators         #-}
-{-# LANGUAGE UndecidableInstances  #-}
+{-# LANGUAGE ConstraintKinds        #-}
+{-# LANGUAGE DataKinds              #-}
+{-# LANGUAGE FlexibleInstances      #-}
+{-# LANGUAGE GADTs                  #-}
+{-# LANGUAGE MultiParamTypeClasses  #-}
+{-# LANGUAGE PolyKinds              #-}
+{-# LANGUAGE RankNTypes             #-}
+{-# LANGUAGE StandaloneDeriving     #-}
+{-# LANGUAGE TypeFamilies           #-}
+{-# LANGUAGE TypeOperators          #-}
+{-# LANGUAGE UndecidableInstances   #-}
+{-# LANGUAGE ScopedTypeVariables    #-}
+{-# LANGUAGE FunctionalDependencies #-}
 
 module Data.Functor.Nested where
 
@@ -30,6 +33,8 @@ import Control.Comonad
 import Data.Foldable
 import Data.Traversable
 import Data.Distributive
+import Data.Proxy
+import Data.Numeric.Witness.Peano
 
 -- | @Flat x@ is the type index used for the base case of a 'Nested' value. Thus, a @(Nested (Flat []) Int@ is
 --   isomorphic to a @[Int]@.
@@ -98,7 +103,10 @@ instance (Comonad f) => Comonad (Nested (Flat f)) where
    extract   = extract . unNest
    duplicate = fmap Flat . Flat . duplicate . unNest
 
-instance (Comonad f, Comonad (Nested fs), Distributive f, Functor (Nested (Nest fs f))) => Comonad (Nested (Nest fs f)) where
+instance ( Comonad f, Comonad (Nested fs)
+         , Functor (Nested (Nest fs f))
+         , Distributive f )
+         => Comonad (Nested (Nest fs f)) where
    extract   = extract . extract . unNest
    duplicate =
       fmap Nest . Nest   -- wrap it again: f (g (f (g a))) -> Nested (Nest f g) (Nested (Nest f g) a)
@@ -133,6 +141,15 @@ instance (Distributive f) => Distributive (Nested (Flat f)) where
 instance (Distributive f, Distributive (Nested fs)) => Distributive (Nested (Nest fs f)) where
    distribute = Nest . fmap distribute . distribute . fmap unNest
 
+class TransformNested fs gs f g | fs -> f, gs -> g, fs f g -> gs, gs f g -> fs where
+   transformNested :: (forall x. f x -> g x) -> Nested fs a -> Nested gs a
+
+instance TransformNested (Flat f) (Flat g) f g where
+   transformNested t (Flat x) = Flat (t x)
+
+instance (TransformNested fs gs f g, Functor (Nested fs)) => TransformNested (Nest fs f) (Nest gs g) f g where
+   transformNested t (Nest x) = Nest $ transformNested t (fmap t x)
+
 class NestedAs x y where
    -- | Given some nested structure which is /not/ wrapped in @Nested@ constructors, and one which is, wrap the first
    --   in the same number of @Nested@ constructors so that they are equivalently nested.
@@ -159,3 +176,26 @@ type family AsNestedAs x y where
 -- | This type family calculates the type of a @Nested@ value if one more @Nest@ constructor is applied to it.
 type family AddNest x where
    AddNest (Nested fs (f x)) = Nested (Nest fs f) x
+
+-- | Counts how deeply a 'Nested' thing is nested.
+type family NestedCount x where
+   NestedCount (Flat f)    = Succ Zero
+   NestedCount (Nest fs f) = Succ (NestedCount fs)
+
+-- | Term-level nesting count.
+nestedCount :: Nested fs a -> Natural (NestedCount fs)
+nestedCount (Flat x) = Succ Zero
+nestedCount (Nest x) = Succ (nestedCount x)
+
+-- | Computes the type of an n-deep nested structure (similar to replicate for 'Nested').
+type family NestedNTimes n f where
+   NestedNTimes (Succ Zero) f = Flat f
+   NestedNTimes (Succ n)    f = Nest (NestedNTimes n f) f
+
+type family FullyUnNested fs a where
+   FullyUnNested (Flat f) a    = f a
+   FullyUnNested (Nest fs f) a = FullyUnNested fs (f a)
+
+fullyUnNested :: Nested fs a -> FullyUnNested fs a
+fullyUnNested (Flat x) = x
+fullyUnNested (Nest x) = fullyUnNested x
